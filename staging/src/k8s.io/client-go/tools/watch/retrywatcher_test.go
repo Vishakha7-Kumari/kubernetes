@@ -17,6 +17,7 @@ limitations under the License.
 package watch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -32,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/ktesting"
@@ -649,5 +651,36 @@ func TestRetryWatcherToFinishWithUnreadEvents(t *testing.T) {
 	_, ok := <-watcher.ResultChan()
 	if ok {
 		t.Error("ResultChan is not closed")
+	}
+}
+
+func TestRetryWatcherRecoversFromPanicInWatchLoop(t *testing.T) {
+	reallyCrash := utilruntime.ReallyCrash
+	utilruntime.ReallyCrash = false
+	defer func() { utilruntime.ReallyCrash = reallyCrash }()
+
+	var firstWatch bool
+	panickingWatcher := &cache.ListWatch{
+		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+			if firstWatch {
+				firstWatch = false
+				return watch.NewProxyWatcher(arrayToChannel([]watch.Event{})), nil
+			}
+
+			firstWatch = true
+			panic("test panic in watch loop")
+		},
+	}
+
+	rw, err := NewRetryWatcherWithContext(context.Background(), "1", panickingWatcher)
+	if err != nil {
+		t.Fatalf("failed to create a RetryWatcher: %v", err)
+	}
+
+	rw.Stop()
+	select {
+	case <-rw.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("RetryWatcher did not stop after panic in watch loop")
 	}
 }
