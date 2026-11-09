@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/net"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
@@ -293,6 +294,8 @@ func (rw *RetryWatcher) receive(ctx context.Context) {
 	logger := klog.FromContext(ctx)
 	logger.V(4).Info("Starting RetryWatcher")
 	defer logger.V(4).Info("Stopping RetryWatcher")
+
+	defer utilruntime.HandleCrashWithLogger(logger)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
